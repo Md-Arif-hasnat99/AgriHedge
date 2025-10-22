@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: agrihedge-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: agrihedge123
+      MONGO_INITDB_DATABASE: agrihedge
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - agrihedge-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: agrihedge-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agrihedge-network
+
+  # Ganache Blockchain (Development)
+  ganache:
+    image: trufflesuite/ganache:latest
+    container_name: agrihedge-ganache
+    restart: unless-stopped
+    ports:
+      - "8545:8545"
+    command: >
+      --mnemonic "your twelve word mnemonic phrase goes here for development only"
+      --networkId 1337
+      --chainId 1337
+      --accounts 10
+      --defaultBalanceEther 1000
+      --gasLimit 10000000
+      --gasPrice 1
+      --host 0.0.0.0
+    networks:
+      - agrihedge-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agrihedge-backend
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=mongodb://admin:agrihedge123@mongodb:27017/agrihedge?authSource=admin
+      - DATABASE_NAME=agrihedge
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BLOCKCHAIN_RPC_URL=http://ganache:8545
+      - DEBUG=True
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    depends_on:
+      - mongodb
+      - redis
+      - ganache
+    networks:
+      - agrihedge-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Admin Dashboard (Optional)
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: Dockerfile
+    container_name: agrihedge-admin
+    restart: unless-stopped
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./admin-dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - agrihedge-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  agrihedge-network:
+    driver: bridge
